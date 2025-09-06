@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Broadcast Hub — Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+  <style>
+    .grid { display:grid; gap:16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    .chip { padding:4px 8px; border-radius:999px; font-size:12px; border:1px solid #27314a; }
+    .chip.ok { background:#163b22; color:#c9ffd8; }
+    .chip.bad { background:#431919; color:#ffd1d1; }
+    pre { background:#0b1427; padding:12px; border:1px solid #27314a; border-radius:10px; white-space:pre-wrap; max-height:320px; overflow:auto; }
+    .hint { color:#9bb0d9; font-size:12px; margin-top:6px; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div>Broadcast Hub — Dashboard</div>
+    <div><a href="{{ url_for('logout') }}">Logout</a></div>
+  </div>
+
+  <div class="grid">
+
+    <div class="card">
+      <h2>Outputs Control</h2>
+      {% with msgs = get_flashed_messages(with_categories=true) %}
+        {% if msgs %}
+          <div class="flash">
+            {% for cat, msg in msgs %}
+              <div class="flash-{{cat}}">{{ msg }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      <form class="row" method="post" action="{{ url_for('start_targets') }}">
+        <label class="row"><input type="checkbox" name="yta"> YouTube A</label>
+        <label class="row"><input type="checkbox" name="ytb"> YouTube B</label>
+        <label class="row"><input type="checkbox" name="radio"> Radio Dodra</label>
+        <button type="submit">Start Selected</button>
+      </form>
+
+      <form class="row" method="post" action="{{ url_for('stop_targets') }}" style="margin-top:10px;">
+        <label class="row"><input type="checkbox" name="yta"> YouTube A</label>
+        <label class="row"><input type="checkbox" name="ytb"> YouTube B</label>
+        <label class="row"><input type="checkbox" name="radio"> Radio Dodra</label>
+        <button type="submit">Stop Selected</button>
+      </form>
+
+      <div class="hint" id="statusLine">Loading status…</div>
+    </div>
+
+    <div class="card">
+      <h2>Radio Dodra Metadata</h2>
+      <form method="post" action="{{ url_for('update_radio_title_route') }}">
+        <label>Set Radio Title</label>
+        <input name="radio_title" type="text" placeholder="Enter new title…">
+        <button type="submit">Update Title</button>
+      </form>
+      <div class="hint">This updates the live Now Playing title.</div>
+    </div>
+
+    <div class="card">
+      <h2>Stream Keys</h2>
+      <form method="post" action="{{ url_for('save_keys') }}">
+        <label>YouTube Key A</label>
+        <input name="key1" type="password" placeholder="Enter new key…" autocomplete="off">
+        {% if masked.KEY1 %}<div class="hint">Current: {{ masked.KEY1 }}</div>{% endif %}
+
+        <label style="margin-top:10px;">YouTube Key B</label>
+        <input name="key2" type="password" placeholder="Enter new key…" autocomplete="off">
+        {% if masked.KEY2 %}<div class="hint">Current: {{ masked.KEY2 }}</div>{% endif %}
+
+        <button type="submit" style="margin-top:12px;">Save Keys</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Logs — YouTube A</h2>
+      <pre id="log-yta">(loading…)</pre>
+    </div>
+
+    <div class="card">
+      <h2>Logs — YouTube B</h2>
+      <pre id="log-ytb">(loading…)</pre>
+    </div>
+
+    <div class="card">
+      <h2>Logs — Radio Dodra</h2>
+      <pre id="log-radio">(loading…)</pre>
+    </div>
+
+    <div class="card">
+      <h2>System Health</h2>
+      <pre id="healthBox">(loading…)</pre>
+    </div>
+
+  </div>
+
+  <script>
+    async function fetchText(url) { const r = await fetch(url, {cache:'no-store'}); return r.ok ? r.text() : '('+r.status+')'; }
+    async function fetchJSON(url){ const r = await fetch(url, {cache:'no-store'}); return r.ok ? r.json() : {}; }
+
+    async function refreshStatus() {
+      const s = await fetchJSON("{{ url_for('status_json') }}");
+      const fmt = (t) => t.running ? `🟢 running (pid ${t.pid || '?'})` : '🔴 stopped';
+      const age = (a) => (a==null) ? '—' : `${Math.round(a)}s`;
+      const line = `A: ${fmt(s.yta)}  |  B: ${fmt(s.ytb)}  |  Radio: ${fmt(s.radio)}  — log ages: A ${age(s.yta.log_age_sec)}, B ${age(s.ytb.log_age_sec)}, R ${age(s.radio.log_age_sec)}`;
+      document.getElementById('statusLine').textContent = line;
+    }
+
+    async function refreshLogs() {
+      document.getElementById('log-yta').textContent   = await fetchText("{{ url_for('logs_tail', target='yta') }}?lines=200");
+      document.getElementById('log-ytb').textContent   = await fetchText("{{ url_for('logs_tail', target='ytb') }}?lines=200");
+      document.getElementById('log-radio').textContent = await fetchText("{{ url_for('logs_tail', target='radio') }}?lines=200");
+    }
+
+    async function refreshHealth() {
+      const h = await fetchJSON("{{ url_for('health') }}");
+      document.getElementById('healthBox').textContent =
+`Time: ${h.time}
+CPU: ${h.cpu_percent}%
+RAM: ${h.ram_percent}%
+Disk: ${h.disk_percent}%
+Net sent: ${h.net_bytes_sent}
+Net recv: ${h.net_bytes_recv}`;
+    }
+
+    function loop() {
+      refreshStatus(); refreshLogs(); refreshHealth();
+      setTimeout(loop, 3000);
+    }
+    loop();
+  </script>
+</body>
+</html>
