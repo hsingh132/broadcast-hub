@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
-import os, psutil, datetime, signal, subprocess, time, telnetlib
+import os, psutil, datetime, signal, subprocess, time, telnetlib, threading, re, html
 from functools import wraps
 from flask import (
     Flask, render_template, request, redirect, url_for, session, flash, jsonify, Response
 )
+from collections import deque
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
 
 # --- Paths & constants ---
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
@@ -16,6 +23,14 @@ os.makedirs(RUN_DIR, exist_ok=True)
 
 INPUT_URL  = "rtmp://localhost:1935/live/test"  # single VM input
 
+# RD (Radio Dodra) title monitor constants
+RD_STATUS_URL = os.environ.get("RD_STATUS_URL", "http://192.99.41.102:5386/index.html?sid=1")
+RD_POLL_SECONDS = int(os.environ.get("RD_POLL_SECONDS", "15"))
+TITLE_LOG = os.path.join(LOG_DIR, "rd_title_changes.log")
+TITLE_BUF_MAX = int(os.environ.get("RD_TITLE_BUF_MAX", "300"))  # in-memory entries
+TITLE_FILE_CAP = int(os.environ.get("RD_TITLE_FILE_CAP", str(256 * 1024)))  # 256 KB cap
+LOCAL_TZ = ZoneInfo("America/Los_Angeles") if ZoneInfo else None
+
 # Targets
 YTA = "yta"
 YTB = "ytb"
@@ -26,6 +41,7 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("DASHBOARD_SECRET", "change-me-please")
 USERNAME = os.environ.get("DASHBOARD_USER", "rd")
 PASSWORD = os.environ.get("DASHBOARD_PASS", "rd")
+
 
 def login_required(view):
     @wraps(view)
@@ -137,6 +153,108 @@ def _clear_log(target: str):
     except Exception:
         pass
 
+# --- RD Title Monitor helpers ---
+_rd_log_buf = deque(maxlen=TITLE_BUF_MAX)
+_rd_last_state = {"online": None, "title": None}
+_rd_thread_started = False
+
+def _pst_now_str():
+    now = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
+    if LOCAL_TZ:
+        now = now.astimezone(LOCAL_TZ)
+        # Include zone abbreviation like PST/PDT
+        return now.strftime("%Y-%m-%d %H:%M:%S %Z")
+    return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def _titlefile_cap_tail():
+    try:
+        if os.path.exists(TITLE_LOG) and os.path.getsize(TITLE_LOG) > TITLE_FILE_CAP:
+            keep = max(4096, TITLE_FILE_CAP // 4)
+            with open(TITLE_LOG, "rb") as f:
+                f.seek(-keep, os.SEEK_END)
+                tail = f.read()
+            with open(TITLE_LOG, "wb") as f:
+                f.write(b"...(truncated)\n")
+                f.write(tail)
+    except Exception:
+        pass
+
+def _append_title_log(line: str):
+    ts = _pst_now_str()
+    entry = f"[{ts}] {line}"
+    _rd_log_buf.append(entry)
+    try:
+        _titlefile_cap_tail()
+        with open(TITLE_LOG, "a", encoding="utf-8") as f:
+            f.write(entry + "\n")
+    except Exception:
+        pass
+
+def _fetch_radio_status():
+    """
+    Scrape Shoutcast HTML status page and extract online/title.
+    Returns dict: {"online": bool, "title": str}
+    """
+    try:
+        req = Request(RD_STATUS_URL, headers={"User-Agent": "BroadcastHub/1.0"})
+        with urlopen(req, timeout=5) as r:
+            html_text = r.read().decode("utf-8", "ignore")
+    except (URLError, HTTPError):
+        return {"online": False, "title": ""}
+
+    # Determine online from common phrase
+    online = bool(re.search(r"Stream\s*Status:\s*Stream\s*is\s*up", html_text, re.I))
+
+    # Extract "Current Song" cell: <td>Current Song:</td><td>Title</td>
+    m = re.search(r"Current\s*Song\s*:</td>\s*<td[^>]*>(.*?)</td>", html_text, re.I | re.S)
+    title = ""
+    if m:
+        # Remove any HTML tags & entities
+        raw = m.group(1)
+        # Strip tags
+        raw = re.sub(r"<.*?>", "", raw)
+        title = html.unescape(raw).strip()
+
+    return {"online": online, "title": title}
+
+def _rd_monitor_loop():
+    global _rd_last_state
+    while True:
+        try:
+            st = _fetch_radio_status()
+            online, title = st["online"], st["title"]
+
+            if _rd_last_state["online"] is None:
+                # first observation, set baseline without logging noise
+                _rd_last_state = {"online": online, "title": title}
+            else:
+                # online/offline transitions
+                if online != _rd_last_state["online"]:
+                    if online:
+                        _append_title_log(f"Radio ONLINE, title='{title or '(none)'}'")
+                    else:
+                        _append_title_log("Radio OFFLINE")
+                # title changes while online
+                if online and title != _rd_last_state["title"]:
+                    _append_title_log(f"Title changed: '{_rd_last_state['title'] or '(none)'}' -> '{title or '(none)'}'")
+
+                _rd_last_state = {"online": online, "title": title}
+        except Exception as e:
+            _append_title_log(f"(monitor error: {e})")
+        time.sleep(RD_POLL_SECONDS)
+
+def _start_monitor_thread_once():
+    global _rd_thread_started
+    if _rd_thread_started:
+        return
+    t = threading.Thread(target=_rd_monitor_loop, daemon=True)
+    t.start()
+    _rd_thread_started = True
+
+# Ensure RD monitor thread is started before first request (for waitress/systemd)
+@app.before_first_request
+def _ensure_rd_monitor():
+
 #telnet server helper function
 def update_radio_title(new_title: str) -> str:
     try:
@@ -233,6 +351,32 @@ def stop_targets():
         flash("Nothing selected to stop.", "error")
     return redirect(url_for("index"))
 
+@app.route("/rd_status.json")
+@login_required
+def rd_status_json():
+    st = _fetch_radio_status()
+    st["time"] = _pst_now_str()
+    return jsonify(st)
+
+@app.route("/rd_title_log")
+@login_required
+def rd_title_log():
+    # newest first for convenience
+    lines = list(_rd_log_buf)[-200:]
+    lines.reverse()
+    return Response("\n".join(lines), mimetype="text/plain; charset=utf-8")
+
+@app.route("/rd_title_log/clear", methods=["POST"])
+@login_required
+def rd_title_log_clear():
+    try:
+        _rd_log_buf.clear()
+        open(TITLE_LOG, "w").close()
+        flash("RD title log cleared.", "success")
+    except Exception as e:
+        flash(f"Failed to clear RD title log: {e}", "error")
+    return redirect(url_for("index"))
+
 @app.route("/status.json")
 @login_required
 def status_json():
@@ -307,4 +451,5 @@ def health():
     })
 
 if __name__ == "__main__":
+    _start_monitor_thread_once()
     app.run(host="0.0.0.0", port=5000, debug=False)

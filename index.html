@@ -12,6 +12,7 @@
     .chip.bad { background:#431919; color:#ffd1d1; }
     pre { background:#0b1427; padding:12px; border:1px solid #27314a; border-radius:10px; white-space:pre-wrap; max-height:320px; overflow:auto; }
     .hint { color:#9bb0d9; font-size:12px; margin-top:6px; }
+    .logbox { max-height:240px; overflow:auto; }
   </style>
 </head>
 <body>
@@ -96,6 +97,16 @@
       <pre id="healthBox">(loading…)</pre>
     </div>
 
+    <div class="card">
+      <h2>Radio Dodra — Title Change Monitor</h2>
+      <div class="hint" id="rdStatus">(loading status…)</div>
+      <pre id="rdTitleLog" class="logbox">(loading…)</pre>
+      <form method="post" action="{{ url_for('rd_title_log_clear') }}" class="row" style="margin-top:10px;">
+        <button type="submit">Clear RD Title Log</button>
+      </form>
+      <div class="hint">Shows ONLINE/OFFLINE and title changes with PST/PDT timestamps. Keeps only the newest entries.</div>
+    </div>
+
   </div>
 
   <script>
@@ -127,8 +138,25 @@ Net sent: ${h.net_bytes_sent}
 Net recv: ${h.net_bytes_recv}`;
     }
 
+    async function refreshRDStatus() {
+      const s = await fetchJSON("{{ url_for('rd_status_json') }}");
+      if (!('online' in s)) {
+        document.getElementById('rdStatus').textContent = "(status unavailable)";
+        return;
+      }
+      const online = s.online ? "🟢 ONLINE" : "🔴 OFFLINE";
+      const title = (s.title || "(none)").toString();
+      const ts = s.time || "";
+      document.getElementById('rdStatus').textContent = `${online} — "${title}"  (${ts})`;
+    }
+
+    async function refreshRDLog() {
+      document.getElementById('rdTitleLog').textContent =
+        await fetchText("{{ url_for('rd_title_log') }}");
+    }
+
     function loop() {
-      refreshStatus(); refreshLogs(); refreshHealth();
+      refreshStatus(); refreshLogs(); refreshHealth(); refreshRDStatus(); refreshRDLog();
       setTimeout(loop, 3000);
     }
     loop();

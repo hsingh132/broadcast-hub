@@ -11,3 +11,32 @@ button:hover { filter: brightness(1.05); }
 .flash { margin: 12px 0; }
 .flash-error { background:#431919; color:#ffd1d1; padding:8px 10px; border-radius:8px; }
 .flash-success { background:#163b22; color:#c9ffd8; padding:8px 10px; border-radius:8px; }
+
+/* --- RD Title Change Monitor styles --- */
+.logbox {
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #27314a;
+  background: #0b1427;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Simple horizontal row helper (used by Clear Log form) */
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.row button { width: auto; }
+
+/* Optional: subtle status text style */
+.status {
+  color: #b7c7e6;
+  font-size: 14px;
+}
