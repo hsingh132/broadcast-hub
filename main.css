@@ -40,3 +40,29 @@ button:hover { filter: brightness(1.05); }
   color: #b7c7e6;
   font-size: 14px;
 }
+
+/* --- Minor tweaks for new Radio 2 UI --- */
+.row input[type="checkbox"] {
+  width: auto;
+  margin: 0 6px 0 0;
+  accent-color: #2563eb; /* modern browsers */
+}
+.row label { margin: 0; }
+
+/* Optional: responsive grid wrapper (harmless if unused) */
+.cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+@media (min-width: 980px) {
+  .cards {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Ensure long preformatted logs don't overflow on small screens */
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}

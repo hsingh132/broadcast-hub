@@ -14,7 +14,8 @@ except Exception:
 
 # --- Paths & constants ---
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-SCRIPT_RADIO = os.path.join(BASE_DIR, "stream_obs.liq")
+SCRIPT_RADIO = "/home/hdsingh132/full_dashboard/stream_obs.liq"
+SCRIPT_RADIO2 = "/home/hdsingh132/stream_obs2.liq"
 KEYS_PATH  = os.path.join(BASE_DIR, "keys.env")
 LOG_DIR    = os.path.join(BASE_DIR, "logs")
 RUN_DIR    = os.path.join(BASE_DIR, "run")
@@ -35,6 +36,7 @@ LOCAL_TZ = ZoneInfo("America/Los_Angeles") if ZoneInfo else None
 YTA = "yta"
 YTB = "ytb"
 RAD = "radio"
+RAD2 = "radio2"
 
 # --- Flask config & auth ---
 app = Flask(__name__)
@@ -137,11 +139,20 @@ def _stop_target(target:str):
     # best-effort cleanup of known commands if pid missing/stale
     if target in (YTA, YTB):
         # kill any ffmpeg pulling from our INPUT_URL to rtmp youtube
-        try: subprocess.run(["pkill","-f",f"ffmpeg -i {INPUT_URL}"], check=False)
-        except Exception: pass
+        try:
+            subprocess.run(["pkill", "-f", f"ffmpeg -i {INPUT_URL}"], check=False)
+        except Exception:
+            pass
     elif target == RAD:
-        try: subprocess.run(["pkill","-f","liquidsoap .*stream_obs.liq"], check=False)
-        except Exception: pass
+        try:
+            subprocess.run(["pkill", "-f", "liquidsoap .*stream_obs.liq"], check=False)
+        except Exception:
+            pass
+    elif target == RAD2:
+        try:
+            subprocess.run(["pkill", "-f", "liquidsoap .*stream_obs2.liq"], check=False)
+        except Exception:
+            pass
     # remove pidfile
     try: os.remove(pidfile(target))
     except Exception: pass
@@ -252,31 +263,39 @@ def _start_monitor_thread_once():
     _rd_thread_started = True
 
 # Ensure RD monitor thread is started before first request (for waitress/systemd)
-@app.before_first_request
-def _ensure_rd_monitor():
+# NOT NEEDED FOR NOW
+# @app.before_first_request
+# def _ensure_rd_monitor():
 
 #telnet server helper function
 def update_radio_title(new_title: str) -> str:
-    try:
-        tn = telnetlib.Telnet("localhost", 1234, timeout=3)
-        cmd = f'insert_metadata_0.insert title="{new_title}"\n'.encode("utf-8")
-        tn.write(cmd)
-        tn.write(b"\n")
-        tn.close()
-        return f"Radio title updated to: {new_title}"
-    except Exception as e:
-        return f"Error updating title: {e}"
+    results = []
+    for port, label in ((1234, "RD1"), (1235, "RD2")):
+        try:
+            tn = telnetlib.Telnet("localhost", port, timeout=2)
+            cmd = f'insert_metadata_0.insert title="{new_title}"\n'.encode("utf-8")
+            tn.write(cmd)
+            tn.write(b"\n")
+            tn.close()
+            results.append(f"{label}: OK")
+        except Exception as e:
+            results.append(f"{label}: {e}")
+    return " / ".join(results)
 
 # --- Commands for each target ---
-def cmd_yt(endpoint_letter:str, key:str):
+def cmd_yt(endpoint_letter: str, key: str):
     # stream copy path (OBS already 30fps). Endpoint A uses "a.rtmp", B uses "b.rtmp".
     endpoint = f"{endpoint_letter}.rtmp.youtube.com"
     url = f"rtmp://{endpoint}/live2/{key}"
     return ["bash","-lc", f'exec ffmpeg -re -i "{INPUT_URL}" -c copy -f flv "{url}"']
 
 def cmd_radio():
-    # Run liquidsoap with our file, writing to stream_obs.log already via our redirection
-    return ["bash","-lc", f'exec liquidsoap "{SCRIPT_RADIO}"']
+    # Run exactly one Liquidsoap process, matching the manual success path
+    return ["bash","-lc", f'echo "RUN: liquidsoap {SCRIPT_RADIO}" ; exec liquidsoap "{SCRIPT_RADIO}" </dev/null']
+
+def cmd_radio2():
+    # Same approach for RD2
+    return ["bash","-lc", f'echo "RUN: liquidsoap {SCRIPT_RADIO2}" ; exec liquidsoap "{SCRIPT_RADIO2}" </dev/null']
 
 # --- Views ---
 @app.route("/")
@@ -300,6 +319,7 @@ def start_targets():
     want_yta = request.form.get("yta") == "on"
     want_ytb = request.form.get("ytb") == "on"
     want_rad = request.form.get("radio") == "on"
+    want_rad2 = request.form.get("radio2") == "on"
 
     started = []
     if want_yta:
@@ -317,6 +337,9 @@ def start_targets():
     if want_rad and not _read_pid(RAD):
         pid = _start_bg(cmd_radio(), RAD)
         started.append(("Radio Dodra", pid))
+    if want_rad2 and not _read_pid(RAD2):
+        pid = _start_bg(cmd_radio2(), RAD2)
+        started.append(("Radio Dodra 2", pid))
 
     if started:
         flash("Started: " + ", ".join([f"{name} (pid {pid})" for name, pid in started]), "success")
@@ -330,6 +353,7 @@ def stop_targets():
     want_yta = request.form.get("yta") == "on"
     want_ytb = request.form.get("ytb") == "on"
     want_rad = request.form.get("radio") == "on"
+    want_rad2 = request.form.get("radio2") == "on"
 
     stopped = []
     if want_yta:
@@ -344,6 +368,10 @@ def stop_targets():
         _stop_target(RAD)
         _clear_log(RAD)     # <-- NEW
         stopped.append("Radio Dodra")
+    if want_rad2:
+        _stop_target(RAD2)
+        _clear_log(RAD2)
+        stopped.append("Radio Dodra 2")
 
     if stopped:
         flash("Stopped: " + ", ".join(stopped), "success")
@@ -386,11 +414,13 @@ def status_json():
         mtime = os.path.getmtime(lg) if os.path.exists(lg) else 0
         age = time.time() - mtime if mtime else None
         return {"running": bool(pid), "pid": pid, "log_age_sec": age}
+
     return jsonify({
         "yta": stat_for(YTA),
         "ytb": stat_for(YTB),
         "radio": stat_for(RAD),
-        "time": datetime.datetime.utcnow().isoformat()+"Z"
+        "radio2": stat_for(RAD2),
+        "time": datetime.datetime.utcnow().isoformat() + "Z"
     })
 
 @app.route("/update_radio_title", methods=["POST"])
@@ -401,7 +431,8 @@ def update_radio_title_route():
         flash("Title cannot be empty.", "error")
         return redirect(url_for("index"))
     msg = update_radio_title(title)
-    flash(msg, "success" if msg.startswith("Radio title updated") else "error")
+    level = "success" if "OK" in msg else "error"
+    flash(msg, level)
     return redirect(url_for("index"))
 
 def _tail(path, lines):
@@ -429,7 +460,7 @@ def _tail(path, lines):
 @login_required
 def logs_tail(target):
     target = target.lower()
-    if target not in (YTA, YTB, RAD):
+    if target not in (YTA, YTB, RAD, RAD2):
         return Response("unknown target", status=404)
     n = int(request.args.get("lines", "200"))
     return Response(_tail(logfile(target), n), mimetype="text/plain; charset=utf-8")

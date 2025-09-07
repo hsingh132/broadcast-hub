@@ -39,6 +39,7 @@
         <label class="row"><input type="checkbox" name="yta"> YouTube A</label>
         <label class="row"><input type="checkbox" name="ytb"> YouTube B</label>
         <label class="row"><input type="checkbox" name="radio"> Radio Dodra</label>
+        <label class="row"><input type="checkbox" name="radio2"> Radio Dodra 2</label>
         <button type="submit">Start Selected</button>
       </form>
 
@@ -46,6 +47,7 @@
         <label class="row"><input type="checkbox" name="yta"> YouTube A</label>
         <label class="row"><input type="checkbox" name="ytb"> YouTube B</label>
         <label class="row"><input type="checkbox" name="radio"> Radio Dodra</label>
+        <label class="row"><input type="checkbox" name="radio2"> Radio Dodra 2</label>
         <button type="submit">Stop Selected</button>
       </form>
 
@@ -91,6 +93,10 @@
       <h2>Logs — Radio Dodra</h2>
       <pre id="log-radio">(loading…)</pre>
     </div>
+    <div class="card">
+      <h2>Logs — Radio Dodra 2</h2>
+      <pre id="log-radio2">(loading…)</pre>
+    </div>
 
     <div class="card">
       <h2>System Health</h2>
@@ -117,7 +123,7 @@
       const s = await fetchJSON("{{ url_for('status_json') }}");
       const fmt = (t) => t.running ? `🟢 running (pid ${t.pid || '?'})` : '🔴 stopped';
       const age = (a) => (a==null) ? '—' : `${Math.round(a)}s`;
-      const line = `A: ${fmt(s.yta)}  |  B: ${fmt(s.ytb)}  |  Radio: ${fmt(s.radio)}  — log ages: A ${age(s.yta.log_age_sec)}, B ${age(s.ytb.log_age_sec)}, R ${age(s.radio.log_age_sec)}`;
+      const line = `A: ${fmt(s.yta)}  |  B: ${fmt(s.ytb)}  |  R1: ${fmt(s.radio)}  |  R2: ${fmt(s.radio2)}  — log ages: A ${age(s.yta?.log_age_sec)}, B ${age(s.ytb?.log_age_sec)}, R1 ${age(s.radio?.log_age_sec)}, R2 ${age(s.radio2?.log_age_sec)}`;
       document.getElementById('statusLine').textContent = line;
     }
 
@@ -125,6 +131,7 @@
       document.getElementById('log-yta').textContent   = await fetchText("{{ url_for('logs_tail', target='yta') }}?lines=200");
       document.getElementById('log-ytb').textContent   = await fetchText("{{ url_for('logs_tail', target='ytb') }}?lines=200");
       document.getElementById('log-radio').textContent = await fetchText("{{ url_for('logs_tail', target='radio') }}?lines=200");
+      document.getElementById('log-radio2').textContent = await fetchText("{{ url_for('logs_tail', target='radio2') }}?lines=200");
     }
 
     async function refreshHealth() {
