@@ -1,33 +1,54 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Broadcast Hub — Dashboard</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
-  <style>
-    .grid { display:grid; gap:16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
-    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-    .chip { padding:4px 8px; border-radius:999px; font-size:12px; border:1px solid #27314a; }
-    .chip.ok { background:#163b22; color:#c9ffd8; }
-    .chip.bad { background:#431919; color:#ffd1d1; }
-    pre { background:#0b1427; padding:12px; border:1px solid #27314a; border-radius:10px; white-space:pre-wrap; max-height:320px; overflow:auto; }
-    .hint { color:#9bb0d9; font-size:12px; margin-top:6px; }
-    .logbox { max-height:240px; overflow:auto; }
-  </style>
 </head>
 <body>
-  <div class="topbar">
-    <div>Broadcast Hub — Dashboard</div>
-    <div><a href="{{ url_for('logout') }}">Logout</a></div>
-  </div>
+  <header class="topbar" role="banner">
+    <div class="brand">Broadcast Hub — Dashboard</div>
+    <div class="badges" role="status" aria-live="polite">
+      <span id="badge-yta" class="chip" data-label="YTA">YTA: …</span>
+      <span id="badge-ytb" class="chip" data-label="YTB">YTB: …</span>
+      <span id="badge-r1" class="chip" data-label="RD">RD: …</span>
+      <span id="badge-r2" class="chip" data-label="RD2">RD2: …</span>
+    </div>
+    <div class="nav-actions">
+      <a href="{{ url_for('logout') }}">Logout</a>
+    </div>
+  </header>
 
-  <div class="grid">
+  <main role="main">
+  <div class="sections sections--top">
 
-    <div class="card">
-      <h2>Outputs Control (OBS-first with file fallback for YouTube)</h2>
+    <!-- Step 1: Stream Keys -->
+    <section class="card step" aria-labelledby="keys-h">
+      <h2 id="keys-h"><span class="stepchip" aria-hidden="true">1</span> Stream Keys</h2>
+      <form method="post" action="{{ url_for('save_keys') }}" autocomplete="off">
+        <label for="keyA">YouTube Key A</label>
+        <input id="keyA" name="key1" type="password" placeholder="Enter new key…" autocomplete="off" inputmode="text">
+        {% if masked.KEY1 %}<div class="hint">Current: {{ masked.KEY1 }}</div>{% endif %}
+
+        <label for="keyB" style="margin-top:10px;">YouTube Key B</label>
+        <input id="keyB" name="key2" type="password" placeholder="Enter new key…" autocomplete="off" inputmode="text">
+        {% if masked.KEY2 %}<div class="hint">Current: {{ masked.KEY2 }}</div>{% endif %}
+
+        <div class="row" style="gap:8px; margin-top:12px;">
+          <button type="submit">Save Keys</button>
+          <span class="hint">Keys apply next time you start a YouTube pipeline.</span>
+        </div>
+      </form>
+    </section>
+
+    <!-- Step 2: Outputs Control -->
+    <section class="card step" aria-labelledby="outputs-h">
+      <h2 id="outputs-h"><span class="stepchip" aria-hidden="true">2</span> Outputs</h2>
+
       {% with msgs = get_flashed_messages(with_categories=true) %}
         {% if msgs %}
-          <div class="flash">
+          <div class="flash" role="alert">
             {% for cat, msg in msgs %}
               <div class="flash-{{cat}}">{{ msg }}</div>
             {% endfor %}
@@ -35,108 +56,127 @@
         {% endif %}
       {% endwith %}
 
-      <form class="row" method="post" action="{{ url_for('start_targets') }}">
-        <label class="row"><input type="checkbox" name="yta"> YouTube A (OBS → File fallback)</label>
-        <label class="row"><input type="checkbox" name="ytb"> YouTube B (OBS → File fallback)</label>
-        <label class="row"><input type="checkbox" name="radio"> Radio Dodra</label>
-        <label class="row"><input type="checkbox" name="radio2"> Radio Dodra 2</label>
-        <button type="submit">Start Selected</button>
+      <form method="post" action="{{ url_for('start_targets') }}">
+        <fieldset class="option-box">
+          <legend>Select outputs to start</legend>
+          <div class="option-grid">
+            <label><input type="checkbox" name="yta"> YouTube A <span class="hint">(OBS → File fallback)</span></label>
+            <label><input type="checkbox" name="ytb"> YouTube B <span class="hint">(OBS → File fallback)</span></label>
+            <label><input type="checkbox" name="radio"> Radio Dodra</label>
+            <label><input type="checkbox" name="radio2"> Radio Dodra 2</label>
+          </div>
+        </fieldset>
+        <div class="button-group">
+          <button type="submit">Start Selected</button>
+          <button type="submit" formaction="{{ url_for('stop_targets') }}" formmethod="post" class="secondary">Stop Selected</button>
+          <button type="submit" formaction="{{ url_for('start_targets') }}" formmethod="post" name="yta" value="on" class="ghost">Start YT A Only</button>
+          <button type="submit" formaction="{{ url_for('start_targets') }}" formmethod="post" name="ytb" value="on" class="ghost">Start YT B Only</button>
+        </div>
       </form>
 
-      <form class="row" method="post" action="{{ url_for('stop_targets') }}" style="margin-top:10px;">
-        <label class="row"><input type="checkbox" name="yta"> YouTube A (OBS → File fallback)</label>
-        <label class="row"><input type="checkbox" name="ytb"> YouTube B (OBS → File fallback)</label>
-        <label class="row"><input type="checkbox" name="radio"> Radio Dodra</label>
-        <label class="row"><input type="checkbox" name="radio2"> Radio Dodra 2</label>
-        <button type="submit">Stop Selected</button>
-      </form>
-
-      <div class="hint">
-        YouTube pipelines now push OBS input first and automatically fall back to a local silent MP4 if OBS stops.
-        Updating keys in “Stream Keys” applies on next start.
+      <div class="hint">OBS-first with automatic switch to silent MP4 if OBS drops.</div>
+      <div class="statusline">
+        <strong>Status:</strong> <span class="hint" id="statusLine">Loading status…</span>
       </div>
+    </section>
 
-      <div class="hint" id="statusLine">Loading status…</div>
-    </div>
-
-    <div class="card">
-      <h2>Radio Dodra Metadata</h2>
+    <!-- Step 3: Radio Metadata -->
+    <section class="card step" aria-labelledby="rdmeta-h">
+      <h2 id="rdmeta-h"><span class="stepchip" aria-hidden="true">3</span> Radio Dodra Metadata</h2>
       <form method="post" action="{{ url_for('update_radio_title_route') }}">
-        <label>Set Radio Title</label>
-        <input name="radio_title" type="text" placeholder="Enter new title…">
-        <button type="submit">Update Title</button>
+        <label for="radio_title">Set Radio Title</label>
+        <input id="radio_title" name="radio_title" type="text" placeholder="Enter new title…">
+        <div class="row" style="gap:8px; margin-top:8px;">
+          <button type="submit">Update Title</button>
+          <span class="hint">Updates the live Now Playing title.</span>
+        </div>
       </form>
-      <div class="hint">This updates the live Now Playing title.</div>
-    </div>
+      <div class="hint" id="rdStatus" style="margin-top:6px;">(loading status…)</div>
+    </section>
+  </div>
+  <div class="sections sections--bottom">
 
-    <div class="card">
-      <h2>Stream Keys</h2>
-      <form method="post" action="{{ url_for('save_keys') }}">
-        <label>YouTube Key A</label>
-        <input name="key1" type="password" placeholder="Enter new key…" autocomplete="off">
-        {% if masked.KEY1 %}<div class="hint">Current: {{ masked.KEY1 }}</div>{% endif %}
+    <!-- Health -->
+    <section class="card" aria-labelledby="health-h">
+      <h2 id="health-h">System Health</h2>
+      <pre id="healthBox" class="logbox" aria-live="polite">(loading…)</pre>
+    </section>
 
-        <label style="margin-top:10px;">YouTube Key B</label>
-        <input name="key2" type="password" placeholder="Enter new key…" autocomplete="off">
-        {% if masked.KEY2 %}<div class="hint">Current: {{ masked.KEY2 }}</div>{% endif %}
-
-        <button type="submit" style="margin-top:12px;">Save Keys</button>
-      </form>
-    </div>
-
-    <div class="card">
-      <h2>Logs — YouTube A</h2>
-      <pre id="log-yta">(loading…)</pre>
-    </div>
-
-    <div class="card">
-      <h2>Logs — YouTube B</h2>
-      <pre id="log-ytb">(loading…)</pre>
-    </div>
-
-    <div class="card">
-      <h2>Logs — Radio Dodra</h2>
-      <pre id="log-radio">(loading…)</pre>
-    </div>
-    <div class="card">
-      <h2>Logs — Radio Dodra 2</h2>
-      <pre id="log-radio2">(loading…)</pre>
-    </div>
-
-    <div class="card">
-      <h2>System Health</h2>
-      <pre id="healthBox">(loading…)</pre>
-    </div>
-
-    <div class="card">
-      <h2>Radio Dodra — Title Change Monitor</h2>
-      <div class="hint" id="rdStatus">(loading status…)</div>
-      <pre id="rdTitleLog" class="logbox">(loading…)</pre>
+    <!-- Title Monitor -->
+    <section class="card" aria-labelledby="rdmon-h">
+      <h2 id="rdmon-h">Radio Dodra — Title Change Monitor</h2>
+      <pre id="rdTitleLog" class="logbox" aria-live="polite">(loading…)</pre>
       <form method="post" action="{{ url_for('rd_title_log_clear') }}" class="row" style="margin-top:10px;">
-        <button type="submit">Clear RD Title Log</button>
+        <button type="submit" class="secondary">Clear RD Title Log</button>
       </form>
       <div class="hint">Shows ONLINE/OFFLINE and title changes with PST/PDT timestamps. Keeps only the newest entries.</div>
-    </div>
-
+    </section>
   </div>
+  <div class="sections">
+
+    <!-- Logs: Tabs -->
+    <section class="card logs span-2" aria-labelledby="logs-h">
+      <h2 id="logs-h" class="sr-only">Logs</h2>
+      <div class="tabs" role="tablist" aria-label="Logs">
+        <button class="tab active" role="tab" aria-selected="true" aria-controls="tab-yt" id="tab-btn-yt" data-tab="yt">YouTube Logs</button>
+        <button class="tab" role="tab" aria-selected="false" aria-controls="tab-rd" id="tab-btn-rd" data-tab="rd">Radio Logs</button>
+      </div>
+      <div class="tabpanes">
+        <div class="tabpane active" id="tab-yt" role="tabpanel" aria-labelledby="tab-btn-yt">
+          <h3>YouTube A</h3>
+          <pre id="log-yta" class="logbox" aria-live="polite">(loading…)</pre>
+          <h3 style="margin-top:12px;">YouTube B</h3>
+          <pre id="log-ytb" class="logbox" aria-live="polite">(loading…)</pre>
+        </div>
+        <div class="tabpane" id="tab-rd" role="tabpanel" aria-labelledby="tab-btn-rd">
+          <h3>Radio Dodra</h3>
+          <pre id="log-radio" class="logbox" aria-live="polite">(loading…)</pre>
+          <h3 style="margin-top:12px;">Radio Dodra 2</h3>
+          <pre id="log-radio2" class="logbox" aria-live="polite">(loading…)</pre>
+        </div>
+      </div>
+    </section>
+  </div>
+
+    <footer class="hint" style="text-align:center; margin-top:8px;">
+      Tip: Use the tabs to switch log views. Badges in the header turn green when a pipeline is live.
+    </footer>
+
+  </main>
 
   <script>
     async function fetchText(url) { const r = await fetch(url, {cache:'no-store'}); return r.ok ? r.text() : '('+r.status+')'; }
     async function fetchJSON(url){ const r = await fetch(url, {cache:'no-store'}); return r.ok ? r.json() : {}; }
 
+    function setBadge(el, running){
+      el.classList.remove('ok','bad');
+      if (running) { el.classList.add('ok'); el.textContent = el.dataset.label+': LIVE'; }
+      else { el.classList.add('bad'); el.textContent = el.dataset.label+': OFF'; }
+    }
+
     async function refreshStatus() {
       const s = await fetchJSON("{{ url_for('status_json') }}");
-      const fmt = (t) => t.running ? `🟢 running (pid ${t.pid || '?'})` : '🔴 stopped';
+      const fmt = (t) => t && t.running ? `🟢 running (pid ${t.pid || '?'})` : '🔴 stopped';
       const age = (a) => (a==null) ? '—' : `${Math.round(a)}s`;
       const line = `A: ${fmt(s.yta)}  |  B: ${fmt(s.ytb)}  |  R1: ${fmt(s.radio)}  |  R2: ${fmt(s.radio2)}  — log ages: A ${age(s.yta?.log_age_sec)}, B ${age(s.ytb?.log_age_sec)}, R1 ${age(s.radio?.log_age_sec)}, R2 ${age(s.radio2?.log_age_sec)}`;
       document.getElementById('statusLine').textContent = line;
+      const bA = document.getElementById('badge-yta'); setBadge(bA, s.yta?.running);
+      const bB = document.getElementById('badge-ytb'); setBadge(bB, s.ytb?.running);
+      const bR1 = document.getElementById('badge-r1'); setBadge(bR1, s.radio?.running);
+      const bR2 = document.getElementById('badge-r2'); setBadge(bR2, s.radio2?.running);
     }
 
     async function refreshLogs() {
-      document.getElementById('log-yta').textContent   = await fetchText("{{ url_for('logs_tail', target='yta') }}?lines=200");
-      document.getElementById('log-ytb').textContent   = await fetchText("{{ url_for('logs_tail', target='ytb') }}?lines=200");
-      document.getElementById('log-radio').textContent = await fetchText("{{ url_for('logs_tail', target='radio') }}?lines=200");
-      document.getElementById('log-radio2').textContent = await fetchText("{{ url_for('logs_tail', target='radio2') }}?lines=200");
+      const ytActive = document.querySelector('.tab.active')?.dataset.tab === 'yt';
+      const rdActive = !ytActive;
+      if (ytActive) {
+        document.getElementById('log-yta').textContent   = await fetchText("{{ url_for('logs_tail', target='yta') }}?lines=200");
+        document.getElementById('log-ytb').textContent   = await fetchText("{{ url_for('logs_tail', target='ytb') }}?lines=200");
+      }
+      if (rdActive) {
+        document.getElementById('log-radio').textContent = await fetchText("{{ url_for('logs_tail', target='radio') }}?lines=200");
+        document.getElementById('log-radio2').textContent = await fetchText("{{ url_for('logs_tail', target='radio2') }}?lines=200");
+      }
     }
 
     async function refreshHealth() {
@@ -166,6 +206,21 @@ Net recv: ${h.net_bytes_recv}`;
       document.getElementById('rdTitleLog').textContent =
         await fetchText("{{ url_for('rd_title_log') }}");
     }
+
+    // Tabs (accessible)
+    document.addEventListener('click', (e)=>{
+      if (!e.target.classList.contains('tab')) return;
+      document.querySelectorAll('.tab').forEach(t=>{
+        t.classList.remove('active');
+        t.setAttribute('aria-selected','false');
+      });
+      e.target.classList.add('active');
+      e.target.setAttribute('aria-selected','true');
+      const tab = e.target.dataset.tab;
+      document.querySelectorAll('.tabpane').forEach(p=>p.classList.remove('active'));
+      document.getElementById(tab==='yt' ? 'tab-yt' : 'tab-rd').classList.add('active');
+      refreshLogs(); // update visible logs immediately
+    });
 
     function loop() {
       refreshStatus(); refreshLogs(); refreshHealth(); refreshRDStatus(); refreshRDLog();

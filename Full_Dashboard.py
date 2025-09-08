@@ -42,7 +42,7 @@ RAD = "radio"
 RAD2 = "radio2"
 
 # --- Flask config & auth ---
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates", static_folder="static", static_url_path="/static")
 app.config["SECRET_KEY"] = os.environ.get("DASHBOARD_SECRET", "change-me-please")
 USERNAME = os.environ.get("DASHBOARD_USER", "rd")
 PASSWORD = os.environ.get("DASHBOARD_PASS", "rd")
