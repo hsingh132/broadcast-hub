@@ -16,13 +16,15 @@ except Exception:
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 SCRIPT_RADIO = "/home/hdsingh132/full_dashboard/stream_obs.liq"
 SCRIPT_RADIO2 = "/home/hdsingh132/stream_obs2.liq"
+SCRIPT_MUX_WATCH = "/home/hdsingh132/mux_watch_yta.sh"
+YT_FALLBACK_FILE = "/home/hdsingh132/static/black_silent.mp4"
 KEYS_PATH  = os.path.join(BASE_DIR, "keys.env")
 LOG_DIR    = os.path.join(BASE_DIR, "logs")
 RUN_DIR    = os.path.join(BASE_DIR, "run")
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(RUN_DIR, exist_ok=True)
 
-INPUT_URL  = "rtmp://localhost:1935/live/test"  # single VM input
+INPUT_URL  = "rtmp://localhost:1935/live/test"  # OBS RTMP published on this VM
 
 # RD (Radio Dodra) title monitor constants
 RD_STATUS_URL = os.environ.get("RD_STATUS_URL", "http://192.99.41.102:5386/index.html?sid=1")
@@ -138,11 +140,21 @@ def _stop_target(target:str):
             except Exception: pass
     # best-effort cleanup of known commands if pid missing/stale
     if target in (YTA, YTB):
-        # kill any ffmpeg pulling from our INPUT_URL to rtmp youtube
+        # Stop any ffmpeg sender and our mux scripts if pid missing/stale
         try:
-            subprocess.run(["pkill", "-f", f"ffmpeg -i {INPUT_URL}"], check=False)
+            subprocess.run(["pkill", "-f", f"ffmpeg .*{INPUT_URL}"], check=False)
         except Exception:
             pass
+        for pat in [
+            r"mux_watch_yta\.sh",
+            r"mux_consumer_yta\.sh",
+            r"producer_obs_yta\.sh",
+            r"producer_fallback_yta\.sh",
+        ]:
+            try:
+                subprocess.run(["pkill", "-f", pat], check=False)
+            except Exception:
+                pass
     elif target == RAD:
         try:
             subprocess.run(["pkill", "-f", "liquidsoap .*stream_obs.liq"], check=False)
@@ -262,17 +274,24 @@ def _start_monitor_thread_once():
     t.start()
     _rd_thread_started = True
 
-# Ensure RD monitor thread is started before first request (for waitress/systemd)
-# NOT NEEDED FOR NOW
-# @app.before_first_request
-# def _ensure_rd_monitor():
+#
+# --- Flask 3.x COMPAT: start monitor at import ---
+# DO NOT CHANGE OR REVERT TO @app.before_first_request.
+# Flask 3 removed that decorator. Starting the monitor at import ensures
+# it runs under systemd/waitress as soon as the module is imported.
+# DO NOT use @app.before_first_request — it no longer exists in Flask 3.
+try:
+    _start_monitor_thread_once()
+except Exception as e:
+    print(f"[init] RD monitor not started (ignored): {e}")
+
 
 #telnet server helper function
 def update_radio_title(new_title: str) -> str:
     results = []
     for port, label in ((1234, "RD1"), (1235, "RD2")):
         try:
-            tn = telnetlib.Telnet("localhost", port, timeout=2)
+            tn = telnetlib.Telnet("localhost", port, timeout=5)
             cmd = f'insert_metadata_0.insert title="{new_title}"\n'.encode("utf-8")
             tn.write(cmd)
             tn.write(b"\n")
@@ -284,10 +303,31 @@ def update_radio_title(new_title: str) -> str:
 
 # --- Commands for each target ---
 def cmd_yt(endpoint_letter: str, key: str):
-    # stream copy path (OBS already 30fps). Endpoint A uses "a.rtmp", B uses "b.rtmp".
-    endpoint = f"{endpoint_letter}.rtmp.youtube.com"
-    url = f"rtmp://{endpoint}/live2/{key}"
-    return ["bash","-lc", f'exec ffmpeg -re -i "{INPUT_URL}" -c copy -f flv "{url}"']
+    """Start YouTube A/B via the ffmpeg mux pipeline.
+
+We execute ~/mux_watch_yta.sh with environment variables:
+  - YT_KEY        : YouTube stream key
+  - INPUT_URL     : OBS RTMP on this VM
+  - FALLBACK_FILE : path to local MP4 (black/silent)
+  - YT_INGEST     : rtmp://a.rtmp.youtube.com/live2 or .../b.rtmp.youtube.com/live2
+
+NOTE TO FUTURE SELF: DO NOT switch this back to Liquidsoap here.
+The A/V mux + failover lives in these shell scripts now.
+"""
+    ingest = "rtmp://a.rtmp.youtube.com/live2" if endpoint_letter.lower() == "a" else "rtmp://b.rtmp.youtube.com/live2"
+    env_export = (
+        f'YT_KEY="{key}" '
+        f'INPUT_URL="{INPUT_URL}" '
+        f'FALLBACK_FILE="{YT_FALLBACK_FILE}" '
+        f'YT_INGEST="{ingest}"'
+    )
+    # Force bash for the watch script so `set -euo pipefail` is honored.
+    # Running via /bin/sh (dash) causes "Illegal option -o pipefail".
+    # We run a single supervisor script; it spawns/respawns the producers/consumer.
+    return [
+        "bash", "-lc",
+        f'echo "RUN: {SCRIPT_MUX_WATCH}" ; exec env {env_export} bash "{SCRIPT_MUX_WATCH}" </dev/null'
+    ]
 
 def cmd_radio():
     # Run exactly one Liquidsoap process, matching the manual success path
@@ -482,5 +522,6 @@ def health():
     })
 
 if __name__ == "__main__":
+    # Flask 3 compat: keep this direct call; no decorators.
     _start_monitor_thread_once()
     app.run(host="0.0.0.0", port=5000, debug=False)

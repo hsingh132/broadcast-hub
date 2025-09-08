@@ -24,7 +24,7 @@
   <div class="grid">
 
     <div class="card">
-      <h2>Outputs Control</h2>
+      <h2>Outputs Control (OBS-first with file fallback for YouTube)</h2>
       {% with msgs = get_flashed_messages(with_categories=true) %}
         {% if msgs %}
           <div class="flash">
@@ -36,20 +36,25 @@
       {% endwith %}
 
       <form class="row" method="post" action="{{ url_for('start_targets') }}">
-        <label class="row"><input type="checkbox" name="yta"> YouTube A</label>
-        <label class="row"><input type="checkbox" name="ytb"> YouTube B</label>
+        <label class="row"><input type="checkbox" name="yta"> YouTube A (OBS → File fallback)</label>
+        <label class="row"><input type="checkbox" name="ytb"> YouTube B (OBS → File fallback)</label>
         <label class="row"><input type="checkbox" name="radio"> Radio Dodra</label>
         <label class="row"><input type="checkbox" name="radio2"> Radio Dodra 2</label>
         <button type="submit">Start Selected</button>
       </form>
 
       <form class="row" method="post" action="{{ url_for('stop_targets') }}" style="margin-top:10px;">
-        <label class="row"><input type="checkbox" name="yta"> YouTube A</label>
-        <label class="row"><input type="checkbox" name="ytb"> YouTube B</label>
+        <label class="row"><input type="checkbox" name="yta"> YouTube A (OBS → File fallback)</label>
+        <label class="row"><input type="checkbox" name="ytb"> YouTube B (OBS → File fallback)</label>
         <label class="row"><input type="checkbox" name="radio"> Radio Dodra</label>
         <label class="row"><input type="checkbox" name="radio2"> Radio Dodra 2</label>
         <button type="submit">Stop Selected</button>
       </form>
+
+      <div class="hint">
+        YouTube pipelines now push OBS input first and automatically fall back to a local silent MP4 if OBS stops.
+        Updating keys in “Stream Keys” applies on next start.
+      </div>
 
       <div class="hint" id="statusLine">Loading status…</div>
     </div>

@@ -27,13 +27,14 @@ button:hover { filter: brightness(1.05); }
   word-break: break-word;
 }
 
-/* Simple horizontal row helper (used by Clear Log form) */
+/* Simple horizontal row helper (used by Clear Log form and YouTube controls) */
 .row {
   display: flex;
   gap: 10px;
   align-items: center;
 }
 .row button { width: auto; }
+.row select { width: auto; }
 
 /* Optional: subtle status text style */
 .status {
