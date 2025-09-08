@@ -16,7 +16,8 @@ except Exception:
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 SCRIPT_RADIO = "/home/hdsingh132/full_dashboard/stream_obs.liq"
 SCRIPT_RADIO2 = "/home/hdsingh132/stream_obs2.liq"
-SCRIPT_MUX_WATCH = "/home/hdsingh132/mux_watch_yta.sh"
+SCRIPT_MUX_WATCH_A = "/home/hdsingh132/mux_watch_yta.sh"
+SCRIPT_MUX_WATCH_B = "/home/hdsingh132/mux_watch_ytb.sh"
 YT_FALLBACK_FILE = "/home/hdsingh132/static/black_silent.mp4"
 KEYS_PATH  = os.path.join(BASE_DIR, "keys.env")
 LOG_DIR    = os.path.join(BASE_DIR, "logs")
@@ -150,6 +151,10 @@ def _stop_target(target:str):
             r"mux_consumer_yta\.sh",
             r"producer_obs_yta\.sh",
             r"producer_fallback_yta\.sh",
+            r"mux_watch_ytb\.sh",
+            r"mux_consumer_ytb\.sh",
+            r"producer_obs_ytb\.sh",
+            r"producer_fallback_ytb\.sh",
         ]:
             try:
                 subprocess.run(["pkill", "-f", pat], check=False)
@@ -303,7 +308,7 @@ def update_radio_title(new_title: str) -> str:
 
 # --- Commands for each target ---
 def cmd_yt(endpoint_letter: str, key: str):
-    """Start YouTube A/B via the ffmpeg mux pipeline.
+    """Start YouTube A/B via the ffmpeg mux pipeline (per-channel supervisor).
 
 We execute ~/mux_watch_yta.sh with environment variables:
   - YT_KEY        : YouTube stream key
@@ -315,6 +320,7 @@ NOTE TO FUTURE SELF: DO NOT switch this back to Liquidsoap here.
 The A/V mux + failover lives in these shell scripts now.
 """
     ingest = "rtmp://a.rtmp.youtube.com/live2" if endpoint_letter.lower() == "a" else "rtmp://b.rtmp.youtube.com/live2"
+    watch_script = SCRIPT_MUX_WATCH_A if endpoint_letter.lower() == "a" else SCRIPT_MUX_WATCH_B
     env_export = (
         f'YT_KEY="{key}" '
         f'INPUT_URL="{INPUT_URL}" '
@@ -326,7 +332,7 @@ The A/V mux + failover lives in these shell scripts now.
     # We run a single supervisor script; it spawns/respawns the producers/consumer.
     return [
         "bash", "-lc",
-        f'echo "RUN: {SCRIPT_MUX_WATCH}" ; exec env {env_export} bash "{SCRIPT_MUX_WATCH}" </dev/null'
+        f'echo "RUN: {watch_script}" ; exec env {env_export} bash "{watch_script}" </dev/null'
     ]
 
 def cmd_radio():
